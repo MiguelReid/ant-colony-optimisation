@@ -31,14 +31,22 @@ def generate_ant_paths(problem, pheromones, num_ants):
     for ant_index in range(num_ants):
         current_node = "S"
         for item_index in range(problem.num_items):
-            pheromone_levels = np.array(
+            pheromone_levels = np.round(np.array(
                 [pheromones[(current_node, f"{item_index + 1}, {bin_index + 1}")] for bin_index in
-                 range(problem.num_bins)])
+                 range(problem.num_bins)]), 2)
             total_pheromone = np.sum(pheromone_levels)
+
             probabilities = pheromone_levels / total_pheromone
+
+            if np.isnan(probabilities).any():
+                # Sometimes one of them is NaN, so we just set them all to 1/num_bins
+                probabilities = np.ones(problem.num_bins) / problem.num_bins
+
             chosen_bin = np.random.choice(problem.num_bins, p=probabilities)
+            print_pheromone_levels(pheromones, current_node)
             paths[ant_index, item_index] = chosen_bin
             current_node = f"{item_index + 1}, {chosen_bin + 1}"
+            print(f"Item {item_index + 1} dropped in bin {chosen_bin + 1} with pheromone level {pheromone_levels[chosen_bin]}")
     return paths
 
 
@@ -49,7 +57,6 @@ def calculate_fitness(problem, paths):
             bin_index = paths[ant_index, item_index]
             bin_weights[ant_index, bin_index] += problem.weights[item_index]
     fitnesses = np.max(bin_weights, axis=1) - np.min(bin_weights, axis=1)
-    print(fitnesses)
     return fitnesses
 
 
@@ -59,7 +66,7 @@ def update_pheromones(pheromones, paths, fitnesses):
         for item_index in range(paths.shape[1]):
             bin_index = paths[ant_index, item_index]
             next_node = f"{item_index + 1}, {bin_index + 1}"
-            pheromones[(current_node, next_node)] += 1 / fitnesses[ant_index]
+            pheromones[(current_node, next_node)] = np.round(pheromones[(current_node, next_node)] + 1 / fitnesses[ant_index], 2)
             current_node = next_node
 
 
@@ -73,7 +80,8 @@ def plot_construction_graph(problem, pheromones, best_path):
     G.add_node("S")  # Start node
     G.add_node("E")  # End node
 
-    pos = {"S": (0, 2), "E": (problem.num_items + 1, 2)}  # Set S and E at the same height as bin 2
+    middle_pos = (problem.num_bins + 1) / 2
+    pos = {"S": (0, middle_pos), "E": (problem.num_items + 1, middle_pos)}  # Set S and E at the middle height
 
     # Add nodes and edges for each item and bin
     for item_index in range(problem.num_items):
@@ -122,11 +130,13 @@ def ant_colony_optimization(problem, num_ants, evaporation_rate, max_evaluations
 
     while evaluations < max_evaluations:
         paths = generate_ant_paths(problem, pheromones, num_ants)
+        print(paths)
         fitnesses = calculate_fitness(problem, paths)
         min_fitness_index = np.argmin(fitnesses)
         if fitnesses[min_fitness_index] < best_fitness:
             best_fitness = fitnesses[min_fitness_index]
             best_path = paths[min_fitness_index]
+            print('BEST PATH: ', best_path)
         update_pheromones(pheromones, paths, fitnesses)
         evaporate_pheromones(pheromones, evaporation_rate)
         evaluations += num_ants
@@ -134,16 +144,36 @@ def ant_colony_optimization(problem, num_ants, evaporation_rate, max_evaluations
     return best_fitness, best_path
 
 
+def calculate_bin_weights(problem, best_path):
+    bin_weights = np.zeros(problem.num_bins)
+    for item_index, bin_index in enumerate(best_path):
+        bin_weights[bin_index] += problem.weights[item_index]
+    return bin_weights
+
+
+def print_pheromone_levels(pheromones, current_node):
+    print("***START***")
+    for edge, level in pheromones.items():
+        if edge[0] == current_node:
+            print(f"Edge {edge}: {level:.2f}")
+    print("***END***")
+
+
 # Define the BinPackingProblem instance with 6 items and 3 bins
-BPP1 = BinPackingProblem(6, 4, [17, 12, 19, 6, 4, 28])
+BPP1 = BinPackingProblem(6, 3, [3, 6, 2, 5, 1, 4])
+# Chosn Bin does num_items * 100
+# BPP1 = BinPackingProblem(500, 10, list(range(1, 501)))
+BPP2 = BinPackingProblem(500, 50, [(i**2)/2 for i in range(1, 501)])
+problem = BPP1
 
 # Run a single experiment
-best_fitness, best_path = ant_colony_optimization(BPP1, num_ants=10, evaporation_rate=0.9, max_evaluations=100)
+best_fitness, best_path = ant_colony_optimization(problem, num_ants=10, evaporation_rate=0.9, max_evaluations=1)
 print(f"Best fitness: {best_fitness}")
 
-# Print the bin assignments for each item in bold
-for item_index, bin_index in enumerate(best_path):
-    print(f"**Item {item_index + 1} is in Bin {bin_index + 1}**")
+# Calculate and print the total weight in each bin
+#bin_weights = calculate_bin_weights(problem, best_path)
+#for bin_index, weight in enumerate(bin_weights):
+#    print(f"Bin {bin_index + 1} total weight: {weight}")
 
 # Plot the construction graph with the best path highlighted
-plot_construction_graph(BPP1, initialize_pheromones(BPP1.num_items, BPP1.num_bins), best_path)
+plot_construction_graph(problem, initialize_pheromones(problem.num_items, problem.num_bins), best_path)
