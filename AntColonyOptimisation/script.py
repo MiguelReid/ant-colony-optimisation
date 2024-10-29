@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
+import random
 
 
 class BinPackingProblem:
@@ -10,12 +11,18 @@ class BinPackingProblem:
         self.weights = weights
 
 
+# Function to seed the random number generator
+def set_random_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 def initialize_pheromones(num_items, num_bins):
     pheromones = {}
     for item_index in range(num_items):
         for bin_index in range(num_bins):
             if item_index == 0:
-                pheromones[("S", f"{item_index}, {bin_index}")] = np.round(np.random.rand(), 2)
+                pheromones[("S", f"{item_index}, {bin_index}")] = np.random.rand()
             else:
                 for prev_bin_index in range(num_bins):
                     pheromones[
@@ -34,10 +41,9 @@ def generate_ant_paths(problem, pheromones, num_ants, evaporation_rate):
         bin_weights = np.zeros(problem.num_bins)  # Track weights in each bin for heuristic
 
         for item_index in range(problem.num_items):
-
-            pheromone_levels = np.round(np.array(
+            pheromone_levels = np.array(
                 [pheromones[(current_node, f"{item_index}, {bin_index}")] for bin_index in
-                 range(problem.num_bins)]), 2)
+                 range(problem.num_bins)])
 
             valid_indices = pheromone_levels > 0
 
@@ -94,6 +100,43 @@ def evaporate_pheromones(pheromones, evaporation_rate):
         pheromones[edge] *= evaporation_rate
 
 
+def ant_colony_optimization(problem, num_ants, evaporation_rate, max_evaluations):
+    seed_value = random.randint(0, 10000)  # Generate a random seed
+    print(f"Using seed value: {seed_value}")
+    set_random_seed(seed_value)
+
+    pheromones = initialize_pheromones(problem.num_items, problem.num_bins)
+    best_fitness = float('inf')
+    best_path = None
+    evaluations = 0
+
+    # Additional variables to record
+    fitness_history = []  # Record fitness at each iteration
+    path_lengths = []  # Optionally record path lengths
+
+    while evaluations < max_evaluations:
+        paths = generate_ant_paths(problem, pheromones, num_ants, evaporation_rate)
+        fitnesses = calculate_fitness(problem, paths)
+        # print('Fitness for evaluation: ', evaluations, ' is: ', fitnesses)
+
+        # Record current fitnesses and pheromone levels
+        fitness_history.append(np.min(fitnesses))
+        path_lengths.append(np.mean([np.sum(path) for path in paths]))  # Average path length
+
+        min_fitness_index = np.argmin(fitnesses)
+        if fitnesses[min_fitness_index] < best_fitness:
+            best_fitness = fitnesses[min_fitness_index]
+            best_path = paths[min_fitness_index]
+            print('FITNESS: ', best_fitness)
+        update_pheromones(pheromones, paths, fitnesses)
+        evaporate_pheromones(pheromones, evaporation_rate)
+        evaluations += num_ants
+        # print_pheromone_levels(pheromones)  # Debugging pheromone levels
+    best_fitness_last_evaluation = np.min(fitnesses)
+
+    return best_fitness, best_path, fitness_history, path_lengths, best_fitness_last_evaluation
+
+
 def plot_construction_graph(problem):
     G = nx.DiGraph()
     G.add_node("S")
@@ -122,35 +165,6 @@ def plot_construction_graph(problem):
     nx.draw(G, pos, with_labels=True, node_color='lightblue', font_size=8, font_weight='bold', node_size=2000)
     plt.title("Construction Graph for Bin-Packing Problem")
     plt.show()
-
-
-def ant_colony_optimization(problem, num_ants, evaporation_rate, max_evaluations):
-    pheromones = initialize_pheromones(problem.num_items, problem.num_bins)
-    best_fitness = float('inf')
-    best_path = None
-    evaluations = 0
-
-    while evaluations < max_evaluations:
-        paths = generate_ant_paths(problem, pheromones, num_ants, evaporation_rate)
-        fitnesses = calculate_fitness(problem, paths)
-        # print('Fitness for evaluation: ', evaluations, ' is: ', fitnesses)
-        """
-        print('----------------')
-        for path, fitness in zip(paths, fitnesses):
-            print(f"Path: {path}, Fitness: {fitness}")
-        print('----------------')
-        """
-        min_fitness_index = np.argmin(fitnesses)
-        if fitnesses[min_fitness_index] < best_fitness:
-            best_fitness = fitnesses[min_fitness_index]
-            best_path = paths[min_fitness_index]
-            print('BEST PATH: ', best_path, 'WITH FITNESS: ', best_fitness)
-        update_pheromones(pheromones, paths, fitnesses)
-        evaporate_pheromones(pheromones, evaporation_rate)
-        evaluations += num_ants
-        # print_pheromone_levels(pheromones)  # Debugging pheromone levels
-
-    return best_fitness, best_path
 
 
 # Write a function which print what items are in each bin
@@ -217,9 +231,7 @@ def plot_construction_graph(problem, pheromones, best_path):
     plt.show()
 """
 
-# Define the BinPackingProblem instance with 6 items and 3 bins
-# BPP1 = BinPackingProblem(6, 3, [3, 6, 2, 5, 1, 4])
-BPP1 = BinPackingProblem(20, 10, list(range(1, 21)))
+BPP1 = BinPackingProblem(500, 10, list(range(1, 501)))
 BPP2 = BinPackingProblem(500, 50, [(i ** 2) / 2 for i in range(1, 501)])
 
 # Parameters for the experiments
@@ -230,26 +242,62 @@ experiments = [
     (10, 0.60)
 ]
 
-# Run experiments on BPP1
+# p = 10 and e = 0.90 -> 400ish fitness
 print("Running experiments on BPP1")
-best_path = None
-best_fitness = float('inf')
+problems = [BPP2]
 
-for num_ants, evaporation_rate in experiments:
-    print(f"\nExperiment with p = {num_ants} and e = {evaporation_rate}")
-    current_fitness, current_path = ant_colony_optimization(BPP1, num_ants=num_ants, evaporation_rate=evaporation_rate,
-                                                            max_evaluations=10000)
-    print(f"BPP1 current fitness: {current_fitness} and current path: {current_path}")
+for problem in problems:
+    print(f"\nRunning experiments on problem with {problem.num_items} items and {problem.num_bins} bins")
 
-    if current_fitness < best_fitness:
-        best_fitness = current_fitness
-        best_path = current_path
+    best_path = None
+    best_fitness = float('inf')
+    best_fitnesses = []
+    all_fitness_histories = []
 
-print(f"BPP1 best fitness: {best_fitness} and best path: {best_path}")
+    for num_ants, evaporation_rate in experiments:
+        print(f"\nExperiment with p = {num_ants} and e = {evaporation_rate}")
 
-# Calculate and print the total weight in each bin
-print_bin_contents(BPP1, best_path)
+        for trial in range(5):  # Run 5 trials
+            print(f"\nTrial {trial + 1} of 5")
+            current_fitness, current_path, fitness_history, path_lengths, best_fitness_last_evaluation = ant_colony_optimization(
+                problem, num_ants=num_ants, evaporation_rate=evaporation_rate, max_evaluations=10000)
 
-# Plot the construction graph with the best path highlighted
-# plot_construction_graph(problem, initialize_pheromones(problem.num_items, problem.num_bins), best_path)
-# plot_construction_graph(problem)
+            print(f"BPP1 current fitness: {current_fitness}")
+
+            if current_fitness < best_fitness:
+                best_fitness = current_fitness
+                best_path = current_path
+
+            best_fitnesses.append(best_fitness_last_evaluation)
+            all_fitness_histories.append(fitness_history)
+
+        print(f"Best fitness for p = {num_ants}, e = {evaporation_rate}: {best_fitness}")
+
+    #print("Pheromone levels at iteration 1:", pheromone_levels[0])
+    #print("Average path length history:", path_lengths)
+    print(f"\nBest fitness: {best_fitness} and best path: {best_path}")
+    # Print the fitnesses of the last iteration for each configuration
+    for i, fitness in enumerate(best_fitnesses):
+        print(f"Best fitness of the last evaluation for trial {i + 1}: {fitness}")
+
+    # Calculate and print additional statistics
+    average_fitness = np.mean(best_fitnesses)
+    median_fitness = np.median(best_fitnesses)
+    std_dev_fitness = np.std(best_fitnesses)
+
+    print(f"\nStatistics for problem with {problem.num_items} items and {problem.num_bins} bins:")
+    print(f"Average fitness: {average_fitness}")
+    print(f"Median fitness: {median_fitness}")
+    print(f"Standard deviation of fitness: {std_dev_fitness}")
+    print(f"Best fitness: {best_fitness}")
+
+    # Optionally, print the fitness history for each trial
+    for i, fitness_history in enumerate(all_fitness_histories):
+        print(f"\nFitness history for trial {i + 1}: {fitness_history}")
+
+    # Calculate and print the total weight in each bin
+    # print_bin_contents(problem, best_path)
+
+    # Plot the construction graph with the best path highlighted
+    # plot_construction_graph(problem, initialize_pheromones(problem.num_items, problem.num_bins), best_path)
+    # plot_construction_graph(problem)
